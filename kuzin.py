@@ -236,7 +236,7 @@ if __name__ == "__main__":
     clear_train = [clear_text(text) for text in texts]
     cls.fit(clear_train, categories)
     clear_test = [clear_text(test_text) for test_text in test_texts]
-    answers = cls.fakepredict(clear_test)
+    answers = cls.predict(clear_test)
     print("Answers: ", answers)
     contingency_table = make_contingency_table(answers, test_categories)
     # for key, value in sorted(contingency_table.items()):

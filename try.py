@@ -1,84 +1,93 @@
+#!/usr/bin/env python3
+
 import numpy as np
 import xml.etree.ElementTree as ET
 import gensim
-LabeledSentence = gensim.models.doc2vec.LabeledSentence
-from sklearn.cross_validation import train_test_split
+from gensim.models.doc2vec import LabeledSentence
+from sklearn.model_selection import train_test_split
+from gensim.models.doc2vec import Doc2Vec
 from gensim.models.word2vec import Word2Vec
 import Stemmer
+import re
+from collections import defaultdict
+import random
+import bs4
+from nltk.stem import lancaster, porter
+from scipy.sparse import csr_matrix
+from sklearn.metrics import f1_score
+from sklearn.naive_bayes import MultinomialNB
 
-def read(infile, outall, outpos, outneg):
+def read(infile, labelType):
+	revs = {}
+	revs['rev'] = []
+	revs['cat'] = []
+	revs['word'] = []
 	tree = ET.parse(infile)
 	root = tree.getroot()
-	out = open(outall,"w")
-	pos = open(outpos,"w")
-	neg = open(outneg,"w")
-	review_count = 0
-	pos_review_count = 0
-	neg_review_count = 0
 	stemmer = Stemmer.Stemmer('russian')
 	
 	for child in root:
-		#print(child.tag, child.attrib)
-		stemmedReview = ""
-		for i in child:
-			if i.tag=="scores":
-				for j in i:
-					if j.tag=="food":
-						foodscore = j.text
-						if int(foodscore)>=6:
-							foodscore = "positive"
-						else:
-							foodscore = "negative"
-			if i.tag=="text":
-				review = i.text.strip().lower().split()
-				prevWord = ""
-				for word in review:
-					word = stemmer.stemWord(word.strip(",.!?:$\"()"))
-					if prevWord == "не" or prevWord == "":
-						stemmedReview += word
-					else:
-						stemmedReview += " " + word
-					prevWord = word
-		out.write(foodscore+"\n")
-		if foodscore=="positive":
-			pos.write(stemmedReview)
-			out.write(stemmedReview)
-			pos.write("\n")
-			pos_review_count += 1
-		else:
-			neg.write(stemmedReview)
-			out.write(stemmedReview)
-			neg.write("\n")
-			neg_review_count += 1
-		out.write("\n")
-		review_count += 1
-	pos.close()
-	neg.close()
-	print(review_count)
-	print(pos_review_count)
-	print(neg_review_count)
-
-read('SentiRuEval_rest_markup_train.xml', "reviews.txt", "pos.txt", "neg.txt")
-read('SentiRuEval_rest_markup_test.xml', "reviews_test.txt", "pos_test.txt", "neg_test.txt")
+		cur = {}
+		cat = {cat.get('name'):cat.get('sentiment') for cat in child.find('categories') }['Food']
+		if(cat == 'absence'):
+			continue
+		if(not(cat in revs['cat'])):
+			revs['cat'].append(cat)
+		cur['cat'] = cat
 		
-with open('pos.txt','r') as infile:
-    pos_reviews = infile.readlines()
+		txt = child.find('text').text.strip().lower().split()
+		prevWord = ""
+		stemmedReview = ""
+		for word in txt:
+			word = stemmer.stemWord(word.strip(",.!?:$\"()")) # 1 преобразование охуительнее другого
+			if prevWord == "не" or prevWord == "":
+				stemmedReview += word
+			else:
+				stemmedReview += " " + word
+			prevWord = word
+		cur['stext'] = stemmedReview
+		cur['ltext'] = LabeledSentence(stemmedReview, ['%s_%s'%(labelType,len(revs['rev']))])
+		
+		words = stemmedReview.split()
+		cur['words'] = {}
+		for word in words:
+			if(not(word in revs['word'])):
+				revs['word'].append(word)
+			cur['words'][word] = words.count(word)
+		
+	#	print("Cur:", cur)
+	#	print("Words:", revs['word'])
+		revs['rev'].append(cur)
+	print("Parsed", len(revs['rev']), "reviews")
+	return revs
 
-with open('neg.txt','r') as infile:
-    neg_reviews = infile.readlines()
-	
-y = np.concatenate((np.ones(len(pos_reviews)), np.zeros(len(neg_reviews))))
-x_train, x_test, y_train, y_test = train_test_split(np.concatenate((pos_reviews, neg_reviews)), y, test_size=0.2)
+def make_matrix(revs):
+	rows = []
+	cols = []
+	data = []
+	for i,rev in enumerate(revs['rev']):
+		words = rev['words']
+		rows.extend([i] * len(words))
+		cols.extend(revs['word'].index(word) for word,val in words.items() if(word in revs['word']))
+		data.extend(val for word,val in words.items())
+	shape=(len(revs['rev']), len(revs['word']))
+	matrix = csr_matrix((data,(rows, cols)), shape=shape)
+	return matrix 
 
-#Gensim's Doc2Vec implementation requires each document/paragraph to have a label associated with it.
-#We do this by using the LabeledSentence method. The format will be "TRAIN_i" or "TEST_i" where "i" is
-#a dummy index of the review.
-def labelizeReviews(reviews, label_type):
-    labelized = []
-    for i,v in enumerate(reviews):
-        label = '%s_%s'%(label_type,i)
-        labelized.append(LabeledSentence(v, [label]))
-    return labelized
+train = read("SentiRuEval_rest_markup_train.xml", "TRAIN")
+matrix = make_matrix(train)
+cats = [train['cat'].index(rev['cat']) for rev in train['rev']]
 
-x_train = labelizeReviews(x_train, 'TRAIN')
-x_test = labelizeReviews(x_test, 'TEST')
+cls = MultinomialNB(alpha=0.1)
+print(matrix.get_shape(), len(cats))
+cls.fit(matrix, cats)
+ans = cls.predict(matrix)
+#ans = [random.randrange(0, len(train['cat'])) for rev in train['rev']]
+answ = [train['cat'][cat] for cat in ans] 
+
+precision_scores = f1_score(cats, ans, average=None)
+for elem in precision_scores:
+    print("{:.2f}".format(100 * elem), end=" ")
+print("")
+print("Average precision score: {:.2f}".format(100 *
+    np.mean(precision_scores)))
