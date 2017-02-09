@@ -4,7 +4,7 @@ import numpy as np
 import xml.etree.ElementTree as ET
 import gensim
 from gensim.models.doc2vec import LabeledSentence
-from sklearn.model_selection import train_test_split
+from sklearn.cross_validation import train_test_split
 from gensim.models.doc2vec import Doc2Vec
 from gensim.models.word2vec import Word2Vec
 import Stemmer
