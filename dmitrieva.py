@@ -25,6 +25,7 @@ def read(infile, labelType):
     revs['drop'] = defaultdict(int)
     revs['wordCount'] = defaultdict(int)
     revs['wordCountOfRev'] = defaultdict(int)
+    revs['wordByCategories'] = defaultdict(set)
     stemmer = Stemmer.Stemmer('russian')
 
     data = open(infile, "r", encoding="utf8").read()
@@ -75,7 +76,6 @@ def read(infile, labelType):
 		
         words = stemmedReview.split()
         cur['words'] = defaultdict(int)
-        cur['wordByCategories'] = {}
         for word in words:
             if(len(word) < 3):
                 continue
@@ -85,6 +85,8 @@ def read(infile, labelType):
                 revswords.add(word)
                 cur['words'][word] += 1
                 revs['wordCount'][word] += 1
+                revs['wordByCategories'][word].add(cur['cat'])
+                
         
         for word,val in cur['words'].items():
             revs['wordCountOfRev'][word] += 1
@@ -105,6 +107,7 @@ def drop_words(revs):
                     if (revs['wordCountOfRev'][word] >= 25)
                     and (revs['wordCount'][word] < 100)
                     and (revs['drop'][word] <= 5))
+    #revswords = set(('вкус','невкус'))
     revs['word'] = {}
     for i,word in enumerate(revswords):
         revs['word'][word] = int(i)
@@ -115,7 +118,7 @@ def make_matrix(revs, revsid):
     data = []
     for i,rev in enumerate(revs['rev']):
         words = {word:val for word,val in rev['words'].items() if(word in revsid['word'])}
-        #current_vector_counts[word_code] = np.log2(1.0 + count / np.log2(1.0 + self.categories_counts_by_words[word]))
+        #words = {word: np.log2(1.0 + val / np.log2(1.0 + len(revsid['wordByCategories'][word]))) for word,val in words.items()}
         rows.extend([i] * len(words))
         cols.extend(revsid['word'][word] for word,val in words.items())
         data.extend(val for word,val in words.items())
