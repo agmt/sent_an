@@ -10,7 +10,30 @@ from nltk.stem import lancaster, porter
 from scipy.sparse import csr_matrix
 from sklearn.metrics import f1_score
 from sklearn.naive_bayes import MultinomialNB
+import dmitrieva
 
+def read_xml2(infile):
+    '''насчет soup= см. документацию bs4'''
+    soup = bs4.BeautifulSoup(infile, "xml")
+    root_tag = soup.find("reviews") #корневой тэг файла
+    texts, categories, fileids = [], [], []
+    #в тэг document входит text?  спросить?
+    document_tags = list(root_tag.find_all("review"))
+    #if shuffle:
+    #    random.shuffle(document_tags)
+    for document_tag in document_tags:
+        fileid = document_tag['id']
+        text_tag = document_tag.find("text")
+        cats = [cat for cat in document_tag.find_all('categories')[0].find_all('category')]
+        category = {cat['name']:cat['sentiment'] for cat in cats }['Food']
+        if(category == 'absence'):
+            continue
+
+        text = text_tag.string.strip()
+        texts.append(text)
+        categories.append(category)
+        fileids.append(int(fileid))
+    return texts, categories, fileids
 
 def read_xml(infile):
     '''насчет soup= см. документацию bs4'''
@@ -134,9 +157,9 @@ class TextClassifier:
             for word, count in words_for_text.items():
                 word_code = self.word_codes.get(word)
                 if word_code is not None:
-                    #current_vector_counts[word_code] =\
-                    #    np.log2(1.0 + count / np.log2(1.0 + self.categories_counts_by_words[word]))
-                    current_vector_counts[word_code] = count
+                    current_vector_counts[word_code] =\
+                        np.log2(1.0 + count / np.log2(1.0 + self.categories_counts_by_words[word]))
+                    #current_vector_counts[word_code] = count
             sorted_current_vector_counts = sorted(current_vector_counts.items())
             data.extend(x[1] for x in sorted_current_vector_counts)
             cols.extend(x[0] for x in sorted_current_vector_counts)
@@ -224,6 +247,9 @@ if __name__ == "__main__":
     # if len(args) != 2:
     #     sys.exit
     # infile_train, infile_test = args
+
+    #infile_train = "SentiRuEval_rest_markup_train.xml"
+    #infile_test = "SentiRuEval_rest_markup_test.xml"
     infile_train = "train.xml"
     infile_test = "test.xml"
     with open(infile_train, "r", encoding="utf8") as fin:
@@ -232,12 +258,12 @@ if __name__ == "__main__":
         contents_test = fin.read()
     texts, categories, fileids = read_xml(contents_train)
     test_texts, test_categories, test_fileids = read_xml(contents_test)
-    cls = TextClassifier(min_count=1, max_count=1000)
+    cls = TextClassifier(min_count=1, max_count=10000)
     clear_train = [clear_text(text) for text in texts]
     cls.fit(clear_train, categories)
     clear_test = [clear_text(test_text) for test_text in test_texts]
     answers = cls.predict(clear_test)
-    print("Answers: ", answers)
+    #print("Answers: ", answers)
     contingency_table = make_contingency_table(answers, test_categories)
     # for key, value in sorted(contingency_table.items()):
     #     print("{} {} {}".format(key[0], key[1], value))
