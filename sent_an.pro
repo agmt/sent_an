@@ -1,3 +1,5 @@
+TARGET = dmitrieva.py
+
 DISTFILES += \
     SentiRuEval_rest_markup_test.xml \
     SentiRuEval_rest_markup_train.xml \

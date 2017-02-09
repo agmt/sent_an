@@ -15,13 +15,14 @@ import bs4
 from nltk.stem import lancaster, porter
 from scipy.sparse import csr_matrix
 from sklearn.metrics import f1_score
-from sklearn.naive_bayes import MultinomialNB
+from sklearn.naive_bayes import MultinomialNB,BernoulliNB
 
 def read(infile, labelType):
     revs = {}
     revs['rev'] = []
     revs['cat'] = []
     revswords = set()
+    revs['drop'] = defaultdict(int)
     revs['wordCount'] = defaultdict(int)
     revs['wordCountOfRev'] = defaultdict(int)
     stemmer = Stemmer.Stemmer('russian')
@@ -39,20 +40,23 @@ def read(infile, labelType):
         #cat = child['category']
 
         #catNum = int(child.find('scores').find('food').text)
-		#if(catNum > 8):
-		#	cat = 'positiv'
-		#elif(catNum < 6):
-		#	cat = 'negativ'
-		#else:
-		#	continue
-        if(cat == 'absence'):
-            continue
+        #if(catNum > 8):
+        #  cat = 'positiv'
+        #elif(catNum < 6):
+        #  cat = 'negativ'
+        #else:
+        #  continue
+        #if(cat == 'absence'):
+        #    continue
         #if(cat == 'both'):
         #	continue
         if(cat == 'neutral'):
             continue
-        if(not(cat in revs['cat'])):
-            revs['cat'].append(cat)
+        if(cat == 'absence'):
+            pass
+        else:
+            if(not(cat in revs['cat'])):
+                revs['cat'].append(cat)
         cur['cat'] = cat
 		
         txt = child.find('text').text.lower().split()
@@ -75,12 +79,19 @@ def read(infile, labelType):
         for word in words:
             if(len(word) < 3):
                 continue
-            revswords.add(word)
-            cur['words'][word] += 1
-            revs['wordCount'][word] += 1
+            if(cat == 'absence'):
+                revs['drop'][word] += 1
+            else:
+                revswords.add(word)
+                cur['words'][word] += 1
+                revs['wordCount'][word] += 1
+        
         for word,val in cur['words'].items():
             revs['wordCountOfRev'][word] += 1
-
+        
+        if(cat == 'absence'):
+            continue
+        
         revs['rev'].append(cur)
     revs['word'] = {}
     for i,word in enumerate(revswords):
@@ -89,7 +100,11 @@ def read(infile, labelType):
     return revs
 
 def drop_words(revs):
-    revswords = set(word for word,id in revs['word'].items() if revs['wordCountOfRev'][word] > 25 and revs['wordCount'][word] < 100)
+    #revs['drop']['вкус'] = 10
+    revswords = set(word for word,id in revs['word'].items()
+                    if (revs['wordCountOfRev'][word] >= 25)
+                    and (revs['wordCount'][word] < 100)
+                    and (revs['drop'][word] <= 5))
     revs['word'] = {}
     for i,word in enumerate(revswords):
         revs['word'][word] = int(i)
@@ -118,18 +133,22 @@ if __name__ == "__main__":
     cls = MultinomialNB(alpha=0.1)
     print(matrix.get_shape(), len(cats))
     cls.fit(matrix, cats)
+    
+    #for i,cat in enumerate(cls.feature_log_prob_):
+    #    words = {list(train['word'].keys())[list(train['word'].values()).index(i)]:val for i,val in enumerate(cat)}
+    #    print("Values for ", train['cat'][i])
+    #    print(words)
 
     test = read("SentiRuEval_rest_markup_test.xml", "TEST")
     #test = read("test.xml", "TEST")
     mtest,ctest = make_matrix(test, train)
     print(mtest.get_shape(), len(ctest))
-    ans = [var for var in cls.predict(mtest)]
+    ans = cls.predict(mtest)
     #ans = [random.randrange(0, len(train['cat'])) for rev in train['rev']]
     #print([train['cat'][cat] for cat in ctest])
     #print([train['cat'][cat] for cat in ans])
     #print([cat for cat in ctest])
     #print([cat for cat in ans])
-
     precision_scores = f1_score(ctest, ans, average=None)
     for elem in precision_scores:
         print("{:.2f}".format(100 * elem), end=" ")
