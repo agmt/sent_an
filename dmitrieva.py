@@ -17,6 +17,17 @@ from scipy.sparse import csr_matrix
 from sklearn.metrics import f1_score
 from sklearn.naive_bayes import MultinomialNB,BernoulliNB
 
+class Opt:
+    wordMin = 0
+    wordMax = 100
+    wordRevMin = 25
+    wordRevMax = 10000
+    wordDropMin = 0
+    wordDropMax = 5
+    lenMin = 3
+    conWords = set(('ед', 'вкус', 'невкус', 'кухн', 'аппетит'))
+    conWidth = 20
+
 def read(infile, labelType):
     revs = {}
     revs['rev'] = []
@@ -76,17 +87,18 @@ def read(infile, labelType):
 		
         words = stemmedReview.split()
         cur['words'] = defaultdict(int)
-        for word in words:
-            if(len(word) < 3):
+        for i,word in enumerate(words):
+            if(len(word) < Opt.lenMin):
                 continue
             if(cat == 'absence'):
                 revs['drop'][word] += 1
             else:
-                revswords.add(word)
                 cur['words'][word] += 1
                 revs['wordCount'][word] += 1
                 revs['wordByCategories'][word].add(cur['cat'])
-                
+                if(word in Opt.conWords):
+                    context = words[max(i-Opt.conWidth, 0):(i+Opt.conWidth)]
+                    revswords.update(context)
         
         for word,val in cur['words'].items():
             revs['wordCountOfRev'][word] += 1
@@ -104,9 +116,9 @@ def read(infile, labelType):
 def drop_words(revs):
     #revs['drop']['вкус'] = 10
     revswords = set(word for word,id in revs['word'].items()
-                    if (revs['wordCountOfRev'][word] >= 25)
-                    and (revs['wordCount'][word] < 100)
-                    and (revs['drop'][word] <= 5))
+                    if (Opt.wordRevMin <= revs['wordCountOfRev'][word] < Opt.wordRevMax)
+                    and (Opt.wordMin <= revs['wordCount'][word] < Opt.wordMax)
+                    and (revs['drop'][word] <= Opt.wordDropMax))
     #revswords = set(('вкус','невкус'))
     revs['word'] = {}
     for i,word in enumerate(revswords):
