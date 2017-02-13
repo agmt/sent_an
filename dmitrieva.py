@@ -19,14 +19,68 @@ from sklearn.naive_bayes import MultinomialNB,BernoulliNB
 
 class Opt:
     wordMin = 0
-    wordMax = 100
-    wordRevMin = 25
+    wordMax = 190
+    wordRevMin = 23
     wordRevMax = 10000
     wordDropMin = 0
     wordDropMax = 5
-    lenMin = 3
+    lenMin = 0
     conWords = set(('ед', 'вкус', 'невкус', 'кухн', 'аппетит'))
-    conWidth = 20
+    conWidth = 5
+    childCount = 30
+    childVar = 1600
+
+def getFit(train, test, words):
+    train['word'] = {}
+    for i,word in enumerate(words):
+        train['word'][word] = int(i)
+    train['word'] = words
+    matrix,cats = make_matrix(train, train)
+    mtest,ctest = make_matrix(test, train)
+
+    cls = MultinomialNB(alpha=1e-8)
+    cls.fit(matrix, cats)
+    ans = cls.predict(mtest)
+
+    precision_scores = f1_score(ctest, ans, average=None)
+    print(precision_scores)
+    return np.mean(precision_scores)
+
+def evolve(words):
+    res = []
+    res.append(words)
+    size = len(words)
+    for i in range(Opt.childCount):
+        cur = np.copy(words)
+        for j in range(Opt.childVar):
+            ind = random.randrange(size)
+            cur[ind] = 1-cur[ind]
+        res.append(cur)
+    return res
+
+def optimize(train, test):
+    allWords = {ind:word for word,ind in train['word'].items()}
+    parent = np.ones(len(allWords), dtype=np.int8)
+    for big in range(1000):
+        print("Iter=",big,Opt.childVar)
+        if(big%100 == 0):
+            Opt.childVar = int(Opt.childVar/2)
+        childs = evolve(parent)
+        childVal = []
+        for child in childs:
+            n = 0
+            curWords = {}
+            for ind,word in allWords.items():
+                if(child[ind] == 1):
+                    curWords[word] = n
+                    n += 1
+            fit = getFit(train, test, curWords)
+            print("fit=",fit)
+            print("words=",len(curWords))
+            childVal.append(fit)
+        childn = childVal.index(max(childVal))
+        parent = childs[childn]
+    return parent
 
 def read(infile, labelType):
     revs = {}
@@ -96,9 +150,10 @@ def read(infile, labelType):
                 cur['words'][word] += 1
                 revs['wordCount'][word] += 1
                 revs['wordByCategories'][word].add(cur['cat'])
-                if(word in Opt.conWords):
-                    context = words[max(i-Opt.conWidth, 0):(i+Opt.conWidth)]
-                    revswords.update(context)
+                revswords.add(word)
+                #if(word in Opt.conWords):
+                #    context = words[max(i-Opt.conWidth, 0):(i+Opt.conWidth)]
+                #    revswords.update(context)
         
         for word,val in cur['words'].items():
             revs['wordCountOfRev'][word] += 1
@@ -119,7 +174,7 @@ def drop_words(revs):
                     if (Opt.wordRevMin <= revs['wordCountOfRev'][word] < Opt.wordRevMax)
                     and (Opt.wordMin <= revs['wordCount'][word] < Opt.wordMax)
                     and (revs['drop'][word] <= Opt.wordDropMax))
-    #revswords = set(('вкус','невкус'))
+    revswords = set(['от', 'а', 'тольк', 'вкус', 'выбра', 'отмет', 'особен', 'цел', 'столик', 'сказа', 'из', 'ещ', 'неплох', 'хочет', 'выбор', 'сво', 'ег', 'девушк', 'приятн', '-', 'котор', 'то', 'праздник', 'как', 'можн', 'прост', 'перв', 'хот', 'горяч', 'посл', 'есл', 'мне', 'всё', 'общ', 'кухн', 'компан', 'посет', 'отличн', 'огромн', 'дан', 'обязательн', 'у', 'же', 'уютн', 'вам', 'над', 'обслужива', 'сам', 'вкусн', 'он', 'порадова', 'вообщ', 'ед', 'принесл', 'довольн', 'долг', 'мен', 'атмосфер', 'быстр', 'ну', 'один', 'их', 'персона', 'оказа', 'обслуживан', 'нет', 'гост', 'отдельн', 'сраз', 'понрав', 'готов', 'по', 'уж', 'напитк', 'интерьер'])
     revs['word'] = {}
     for i,word in enumerate(revswords):
         revs['word'][word] = int(i)
@@ -130,7 +185,7 @@ def make_matrix(revs, revsid):
     data = []
     for i,rev in enumerate(revs['rev']):
         words = {word:val for word,val in rev['words'].items() if(word in revsid['word'])}
-        #words = {word: np.log2(1.0 + val / np.log2(1.0 + len(revsid['wordByCategories'][word]))) for word,val in words.items()}
+        #words = {word: np.log2(1.0 + val / np.log2(1.0 + len(revsid['wordByCategories'][word]))) for word,val in rev['words'].items() if(word in revsid['word'])}
         rows.extend([i] * len(words))
         cols.extend(revsid['word'][word] for word,val in words.items())
         data.extend(val for word,val in words.items())
@@ -141,32 +196,16 @@ def make_matrix(revs, revsid):
 
 if __name__ == "__main__":
     train = read("SentiRuEval_rest_markup_train.xml", "TRAIN")
+    test = read("SentiRuEval_rest_markup_test.xml", "TEST")
     #train = read("train.xml", "TRAIN")
     drop_words(train)
-    matrix,cats = make_matrix(train, train)
-
-    cls = MultinomialNB(alpha=0.1)
-    print(matrix.get_shape(), len(cats))
-    cls.fit(matrix, cats)
-    
-    #for i,cat in enumerate(cls.feature_log_prob_):
-    #    words = {list(train['word'].keys())[list(train['word'].values()).index(i)]:val for i,val in enumerate(cat)}
-    #    print("Values for ", train['cat'][i])
-    #    print(words)
-
-    test = read("SentiRuEval_rest_markup_test.xml", "TEST")
-    #test = read("test.xml", "TEST")
-    mtest,ctest = make_matrix(test, train)
-    print(mtest.get_shape(), len(ctest))
-    ans = cls.predict(mtest)
-    #ans = [random.randrange(0, len(train['cat'])) for rev in train['rev']]
-    #print([train['cat'][cat] for cat in ctest])
-    #print([train['cat'][cat] for cat in ans])
-    #print([cat for cat in ctest])
-    #print([cat for cat in ans])
-    precision_scores = f1_score(ctest, ans, average=None)
-    for elem in precision_scores:
-        print("{:.2f}".format(100 * elem), end=" ")
+    print(getFit(train,test,train['word']))
+    #allWords = {ind:word for word,ind in train['word'].items()}
+    #wordFlags = optimize(train, test)
+    #words = [word for ind,word in allWords.items() if wordFlags[ind] == 1]
+    #badwords = [word for ind,word in allWords.items() if wordFlags[ind] == 0]
     print("")
-    print("Average precision score: {:.2f}".format(100 *
-        np.mean(precision_scores)))
+    #print("GOOD!")
+    #print(words)
+    #print("BAD!")
+    #print(badwords)
