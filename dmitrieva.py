@@ -1,12 +1,17 @@
 #!/usr/bin/env python3
 
 import numpy as np
-import xml.etree.ElementTree as ET
-import gensim
 from gensim.models.doc2vec import LabeledSentence
 from sklearn.cross_validation import train_test_split
-from gensim.models.doc2vec import Doc2Vec
-from gensim.models.word2vec import Word2Vec
+from sklearn import preprocessing
+from sklearn import metrics
+from sklearn.naive_bayes import MultinomialNB,BernoulliNB,GaussianNB
+from sklearn.ensemble import ExtraTreesClassifier
+from sklearn.feature_selection import RFE
+from sklearn.linear_model import LogisticRegression
+from sklearn.neighbors import KNeighborsClassifier
+from sklearn.tree import DecisionTreeClassifier
+from sklearn.svm import SVC
 import Stemmer
 import re
 from collections import defaultdict
@@ -14,73 +19,37 @@ import random
 import bs4
 from nltk.stem import lancaster, porter
 from scipy.sparse import csr_matrix
-from sklearn.metrics import f1_score
-from sklearn.naive_bayes import MultinomialNB,BernoulliNB
+from gensim.models.doc2vec import Doc2Vec
+from gensim.models.word2vec import Word2Vec
+
 
 class Opt:
+    """
+    All options in 1 place
+    """
+
+    # Min and max count of words to use them
     wordMin = 0
     wordMax = 190
+    # Min and max count of reviews with word to use this word
     wordRevMin = 23
     wordRevMax = 10000
+    # Min and max count of word appearance in "Abscence" reviews to drop it
     wordDropMin = 0
     wordDropMax = 5
+    # Minimal word legnth
     lenMin = 3
     #conWords = set(('ед', 'вкус', 'невкус', 'кухн', 'аппетит'))
     #conWidth = 1000
+    # Child count and child variety for genetic algorithm
     childCount = 30
     childVar = 200
 
-def getFit(train, test, words):
-    train['word'] = {}
-    for i,word in enumerate(words):
-        train['word'][word] = int(i)
-    train['word'] = words
-    matrix,cats = make_matrix(train, train)
-    mtest,ctest = make_matrix(test, train)
-
-    cls = MultinomialNB(alpha=1e-8)
-    cls.fit(matrix, cats)
-    ans = cls.predict(mtest)
-
-    precision_scores = f1_score(ctest, ans, average=None)
-    print(precision_scores)
-    return np.mean(precision_scores)
-
-def evolve(words):
-    res = []
-    res.append(np.copy(words))
-    size = len(words)
-    for i in range(Opt.childCount):
-        cur = np.copy(words)
-        for j in range(Opt.childVar):
-            ind = random.randrange(size)
-            cur[ind] = 1-cur[ind]
-        res.append(cur)
-    return res
-
-def optimize(train, test, parent):
-    allWords = {ind:word for word,ind in train['word'].items()}
-    for big in range(1000):
-        print("Iter=",big,Opt.childVar)
-        if(big%100 == 0):
-            Opt.childVar = int((Opt.childVar+1)/2)
-        childs = evolve(parent)
-        childVal = []
-        for child in childs:
-            n = 0
-            curWords = {}
-            for ind,word in allWords.items():
-                if(child[ind] == 1):
-                    curWords[word] = n
-                    n += 1
-            fit = getFit(train, test, curWords)
-            print("fit=",fit)
-            print("words=",len(curWords))
-            childVal.append(fit)
-        childn = childVal.index(max(childVal))
-        parent = childs[childn]
-    return parent
-
+"""
+Read xml with reviews into "Revs" class
+@param infile input file name
+@param labelType label for marking review
+"""
 def read(infile, labelType):
     revs = {}
     revs['rev'] = []
@@ -165,6 +134,9 @@ def read(infile, labelType):
     print("Parsed", len(revs['rev']), "reviews")
     return revs
 
+"""
+Select special words for using at next stage
+"""
 def drop_words(revs):
     #revs['drop']['вкус'] = 10
     revswords = set(word for word,id in revs['word'].items()
@@ -179,6 +151,11 @@ def drop_words(revs):
     for i,word in enumerate(revswords):
         revs['word'][word] = int(i)
 
+"""
+Create matrix of features
+@param revs reviews in "Revs"-structure
+@param revsid structure with word ids
+"""
 def make_matrix(revs, revsid):
     rows = []
     cols = []
@@ -193,6 +170,43 @@ def make_matrix(revs, revsid):
     matrix = csr_matrix((data,(rows, cols)), shape=shape)
     cats = [revsid['cat'].index(rev['cat']) for rev in revs['rev']]
     return matrix,cats
+
+
+"""
+Get quality of prediction
+@param train train reviews
+@param test test reviews
+@words used words in enumerable container
+"""
+def getFit(train, test, words):
+    train['word'] = {}
+    for i,word in enumerate(words):
+        train['word'][word] = int(i)
+    train['word'] = words
+    matrix,cats = make_matrix(train, train)
+    mtest,ctest = make_matrix(test, train)
+
+    #matrix = preprocessing.normalize(matrix).toarray()
+    #mtest = preprocessing.normalize(mtest).toarray()
+    model = MultinomialNB(alpha=1e-8)
+    #model = GaussianNB()
+    #model = ExtraTreesClassifier()
+    #model = LogisticRegression()
+    #model = KNeighborsClassifier() # Very bad
+    #model = DecisionTreeClassifier()
+    #model = SVC()
+    
+    model.fit(matrix, cats)
+    #print(model.feature_importances_)
+    
+    ans = model.predict(mtest)
+    
+    print(metrics.classification_report(ctest, ans))
+    print(metrics.confusion_matrix(ctest, ans))
+    
+    precision_scores = metrics.f1_score(ctest, ans, average=None)
+    print(precision_scores)
+    return np.mean(precision_scores)
 
 def genetic(train, test):
     Opt.lenMin = 0
@@ -214,11 +228,48 @@ def genetic(train, test):
     print("BAD!")
     print(badwords)
 
-def predict(train,test):
+def evolve(words):
+    res = []
+    res.append(np.copy(words))
+    size = len(words)
+    for i in range(Opt.childCount):
+        cur = np.copy(words)
+        for j in range(Opt.childVar):
+            ind = random.randrange(size)
+            cur[ind] = 1-cur[ind]
+        res.append(cur)
+    return res
+
+def optimize(train, test, parent):
+    allWords = {ind:word for word,ind in train['word'].items()}
+    for big in range(1000):
+        print("Iter=",big,Opt.childVar)
+        if(big%100 == 0):
+            Opt.childVar = int((Opt.childVar+1)/2)
+        childs = evolve(parent)
+        childVal = []
+        for child in childs:
+            n = 0
+            curWords = {}
+            for ind,word in allWords.items():
+                if(child[ind] == 1):
+                    curWords[word] = n
+                    n += 1
+            fit = getFit(train, test, curWords)
+            print("fit=",fit)
+            print("words=",len(curWords))
+            childVal.append(fit)
+        childn = childVal.index(max(childVal))
+        parent = childs[childn]
+    return parent
+
+def predict(train, test):
     drop_words(train)
     print(getFit(train,test,train['word']))
 
 if __name__ == "__main__":
+    #model = Word2Vec.load_word2vec_format('~/Downloads/word2vec/GoogleNews-vectors-negative300.bin', binary=True)
+    #print(model['computer'])
     train = read("SentiRuEval_rest_markup_train.xml", "TRAIN")
     test = read("SentiRuEval_rest_markup_test.xml", "TEST")
-    predict(train,test)
+    predict(train, test)
