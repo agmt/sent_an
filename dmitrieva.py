@@ -1,5 +1,10 @@
 #!/usr/bin/env python3
 
+"""
+Requirements:
+pip3 install numpy nltk sklearn gensim pystemmer bs4 scipy pymorphy2 pymorphy2-dicts-ru
+"""
+
 import numpy as np
 from gensim.models.doc2vec import LabeledSentence
 from sklearn.cross_validation import train_test_split
@@ -21,7 +26,7 @@ from nltk.stem import lancaster, porter
 from scipy.sparse import csr_matrix
 from gensim.models.doc2vec import Doc2Vec
 from gensim.models.word2vec import Word2Vec
-
+import pymorphy2
 
 class Opt:
     """
@@ -60,6 +65,7 @@ def read(infile, labelType):
     revs['wordCountOfRev'] = defaultdict(int)
     revs['wordByCategories'] = defaultdict(set)
     stemmer = Stemmer.Stemmer('russian')
+    morph = pymorphy2.MorphAnalyzer()
 
     data = open(infile, "r", encoding="utf8").read()
     tree = bs4.BeautifulSoup(data, "xml")
@@ -97,8 +103,9 @@ def read(infile, labelType):
         prevWord = ""
         stemmedReview = ""
         for word in txt:
-            word = stemmer.stemWord(word.strip(",.!?:$\"()"))
-            #word = word.strip(",.!?:$\"()")
+            word = word.strip(",.!?:$\"()")
+            #word = stemmer.stemWord(word)
+            word = morph.parse(word)[0].normal_form
             if((prevWord == 'не') or ( prevWord== "")):
                 stemmedReview += word
             else:
